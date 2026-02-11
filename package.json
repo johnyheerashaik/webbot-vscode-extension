@@ -1,0 +1,112 @@
+{
+  "name": "webbot-vscode",
+  "displayName": "WebBot - AI Coding Assistant",
+  "description": "Chat with your WebBot AI directly in VS Code",
+  "version": "0.0.1",
+  "publisher": "your-name",
+  "icon": "icon.png",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Machine Learning"
+  ],
+  "activationEvents": [
+    "onView:webbot.chatView"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "webbot.openChat",
+        "title": "WebBot: Open Chat",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "webbot.newChat",
+        "title": "WebBot: New Chat",
+        "icon": "$(add)"
+      },
+      {
+        "command": "webbot.clearHistory",
+        "title": "WebBot: Clear History",
+        "icon": "$(trash)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "webbot-sidebar",
+          "title": "WebBot",
+          "icon": "$(robot)"
+        }
+      ]
+    },
+    "views": {
+      "webbot-sidebar": [
+        {
+          "type": "webview",
+          "id": "webbot.chatView",
+          "name": "Chat"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "webbot.newChat",
+          "when": "view == webbot.chatView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "webbot.clearHistory",
+          "when": "view == webbot.chatView",
+          "group": "navigation@2"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "webbot.openChat",
+          "group": "webbot"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "WebBot",
+      "properties": {
+        "webbot.apiUrl": {
+          "type": "string",
+          "default": "http://localhost:8787/api/chat/stream",
+          "description": "WebBot API URL"
+        },
+        "webbot.model": {
+          "type": "string",
+          "default": "gpt-4o-mini",
+          "description": "AI Model to use"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "webpack",
+    "watch": "webpack --watch",
+    "package": "webpack --mode production --devtool hidden-source-map",
+    "compile-tests": "tsc -p . --outDir out",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "18.x",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "eslint": "^8.54.0",
+    "typescript": "^5.3.0",
+    "webpack": "^5.89.0",
+    "webpack-cli": "^5.1.4",
+    "ts-loader": "^9.5.1"
+  }
+}

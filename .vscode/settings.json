@@ -1,0 +1,3 @@
+{
+    "webbot.apiUrl": "http://localhost:8787/api/chat/stream"
+}
