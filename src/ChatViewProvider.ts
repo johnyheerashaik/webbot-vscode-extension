@@ -18,7 +18,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     webviewView: vscode.WebviewView,
     context: vscode.WebviewViewResolveContext,
     _token: vscode.CancellationToken
-  ) {
+  ): void {
     this._view = webviewView;
 
     webviewView.webview.options = {
@@ -29,10 +29,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
 
     // Handle messages from the webview
-    webviewView.webview.onDidReceiveMessage(async (data) => {
+    webviewView.webview.onDidReceiveMessage(async (data: any) => {
       switch (data.type) {
         case 'sendMessage':
           await this.handleSendMessage(data.message);
+          break;
+        case 'attachActiveEditor':
+          await this.handleAttachActiveEditor();
+          break;
+        case 'attachSelection':
+          await this.handleAttachSelection();
           break;
         case 'newChat':
           this.newChat();
@@ -47,26 +53,26 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.loadChatHistory();
   }
 
-  public newChat() {
+  public newChat(): void {
     this.messages = [];
     this._view?.webview.postMessage({ type: 'clearChat' });
     vscode.window.showInformationMessage('Started new chat');
   }
 
-  public clearHistory() {
+  public clearHistory(): void {
     this.messages = [];
     this._view?.webview.postMessage({ type: 'clearChat' });
     vscode.window.showInformationMessage('Chat history cleared');
   }
 
-  public sendMessage(message: string) {
+  public sendMessage(message: string): void {
     this._view?.webview.postMessage({
       type: 'prefillMessage',
       message
     });
   }
 
-  private async handleSendMessage(userMessage: string) {
+  private async handleSendMessage(userMessage: string): Promise<void> {
     const config = vscode.workspace.getConfiguration('webbot');
     const apiUrl = config.get<string>('apiUrl') || 'http://localhost:8787/api/chat/stream';
 
@@ -209,21 +215,70 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private loadChatHistory() {
-    // Load from workspace state or global state
-    // For now, start fresh each time
+  private async handleAttachActiveEditor(): Promise<void> {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      vscode.window.showWarningMessage('No active editor');
+      return;
+    }
+
+    const document = editor.document;
+    const content = document.getText();
+    const fileName = document.fileName.split('/').pop() || 'untitled';
+    const language = document.languageId || '';
+
+    if (content.length > 20000) {
+      vscode.window.showWarningMessage('File too large (>20KB)');
+      return;
+    }
+
+    this._view?.webview.postMessage({
+      type: 'attachFileContent',
+      fileName,
+      language,
+      content
+    });
   }
 
-  private saveChatHistory() {
+  private async handleAttachSelection(): Promise<void> {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      vscode.window.showWarningMessage('No active editor');
+      return;
+    }
+
+    const selection = editor.selection;
+    if (selection.isEmpty) {
+      vscode.window.showWarningMessage('No selection');
+      return;
+    }
+
+    const document = editor.document;
+    const content = document.getText(selection);
+    const fileName = `${document.fileName.split('/').pop() || 'selection'} (lines ${selection.start.line + 1}-${selection.end.line + 1})`;
+    const language = document.languageId || '';
+
+    this._view?.webview.postMessage({
+      type: 'attachFileContent',
+      fileName,
+      language,
+      content
+    });
+  }
+
+  private loadChatHistory(): void {
+    // Load from workspace state or global state
+  }
+
+  private saveChatHistory(): void {
     // Save to workspace state or global state
-    // For now, we keep in memory
   }
 
   private makeId(): string {
     return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
   }
 
-  private _getHtmlForWebview(webview: vscode.Webview) {
+  private _getHtmlForWebview(webview: vscode.Webview): string {
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -237,11 +292,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       box-sizing: border-box;
     }
 
+    html, body {
+      height: 100%;
+      overflow: hidden;
+    }
+
     body {
       font-family: var(--vscode-font-family);
       color: var(--vscode-foreground);
       background-color: var(--vscode-editor-background);
-      height: 100vh;
       display: flex;
       flex-direction: column;
     }
@@ -249,10 +308,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     .chat-container {
       flex: 1;
       overflow-y: auto;
-      padding: 16px;
+      overflow-x: hidden;
+      padding: 12px;
       display: flex;
       flex-direction: column;
       gap: 12px;
+      min-height: 0;
     }
 
     .message {
@@ -276,7 +337,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     .message-header {
-      font-size: 11px;
+      font-size: 10px;
       opacity: 0.6;
       padding: 0 8px;
     }
@@ -286,8 +347,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       padding: 10px 12px;
       border-radius: 12px;
       word-wrap: break-word;
+      word-break: break-word;
+      overflow-wrap: break-word;
       white-space: pre-wrap;
       line-height: 1.5;
+      font-size: 13px;
     }
 
     .message.user .message-bubble {
@@ -303,12 +367,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     .typing-indicator {
       display: flex;
       gap: 4px;
-      padding: 8px 0;
+      padding: 6px 0;
     }
 
     .typing-indicator span {
-      width: 6px;
-      height: 6px;
+      width: 5px;
+      height: 5px;
       border-radius: 50%;
       background: var(--vscode-foreground);
       opacity: 0.6;
@@ -321,19 +385,61 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     @keyframes typing {
       0%, 60%, 100% { transform: translateY(0); opacity: 0.6; }
-      30% { transform: translateY(-8px); opacity: 1; }
+      30% { transform: translateY(-6px); opacity: 1; }
     }
 
     .input-container {
-      padding: 12px;
+      padding: 10px;
       border-top: 1px solid var(--vscode-panel-border);
-      display: flex;
-      gap: 8px;
       background-color: var(--vscode-editor-background);
+      flex-shrink: 0;
+    }
+
+    .input-wrapper {
+      display: flex;
+      gap: 6px;
+      align-items: flex-end;
+    }
+
+    .attach-buttons {
+      display: flex;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+
+    .icon-btn {
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      border-radius: 6px;
+      border: 1px solid var(--vscode-input-border);
+      background-color: var(--vscode-input-background);
+      color: var(--vscode-foreground);
+      font-size: 16px;
+      cursor: pointer;
+      transition: all 0.15s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .icon-btn:hover:not(:disabled) {
+      background-color: var(--vscode-list-hoverBackground);
+      transform: scale(1.05);
+    }
+
+    .icon-btn:active:not(:disabled) {
+      transform: scale(0.95);
+    }
+
+    .icon-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
     }
 
     textarea {
       flex: 1;
+      min-width: 0;
       padding: 8px 10px;
       border-radius: 6px;
       border: 1px solid var(--vscode-input-border);
@@ -342,38 +448,49 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       font-family: var(--vscode-font-family);
       font-size: 13px;
       resize: none;
-      min-height: 36px;
+      min-height: 32px;
       max-height: 120px;
+      line-height: 1.4;
     }
 
     textarea:focus {
       outline: 1px solid var(--vscode-focusBorder);
     }
 
-    button {
-      padding: 8px 14px;
+    .send-btn {
+      width: 36px;
+      height: 32px;
+      padding: 0;
       border-radius: 6px;
       border: none;
       background-color: var(--vscode-button-background);
       color: var(--vscode-button-foreground);
-      font-size: 13px;
-      font-weight: 600;
+      font-size: 16px;
       cursor: pointer;
-      transition: background-color 0.2s;
+      transition: all 0.15s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
     }
 
-    button:hover {
+    .send-btn:hover:not(:disabled) {
       background-color: var(--vscode-button-hoverBackground);
+      transform: scale(1.05);
     }
 
-    button:disabled {
-      opacity: 0.5;
+    .send-btn:active:not(:disabled) {
+      transform: scale(0.95);
+    }
+
+    .send-btn:disabled {
+      opacity: 0.4;
       cursor: not-allowed;
     }
 
     code {
       background-color: var(--vscode-textCodeBlock-background);
-      padding: 2px 6px;
+      padding: 2px 5px;
       border-radius: 3px;
       font-family: var(--vscode-editor-font-family);
       font-size: 12px;
@@ -381,15 +498,34 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     pre {
       background-color: var(--vscode-textCodeBlock-background);
-      padding: 12px;
-      border-radius: 6px;
+      padding: 10px;
+      border-radius: 5px;
       overflow-x: auto;
-      margin: 8px 0;
+      margin: 6px 0;
+      font-size: 12px;
     }
 
     pre code {
       background: none;
       padding: 0;
+    }
+
+    /* Scrollbar */
+    .chat-container::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .chat-container::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .chat-container::-webkit-scrollbar-thumb {
+      background: var(--vscode-scrollbarSlider-background);
+      border-radius: 4px;
+    }
+
+    .chat-container::-webkit-scrollbar-thumb:hover {
+      background: var(--vscode-scrollbarSlider-hoverBackground);
     }
   </style>
 </head>
@@ -397,113 +533,150 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   <div class="chat-container" id="chat"></div>
   
   <div class="input-container">
-    <textarea 
-      id="input" 
-      placeholder="Type a message... (Enter to send, Shift+Enter for new line)"
-      rows="1"
-    ></textarea>
-    <button id="send">Send</button>
+    <div class="input-wrapper">
+      <div class="attach-buttons">
+        <button id="attach-editor" class="icon-btn" type="button" title="Attach current file">📄</button>
+        <button id="attach-selection" class="icon-btn" type="button" title="Attach selection">✂️</button>
+      </div>
+      <textarea 
+        id="input" 
+        placeholder="Ask me anything..."
+        rows="1"
+      ></textarea>
+      <button id="send" class="send-btn" type="button" title="Send (Enter)">➤</button>
+    </div>
   </div>
 
   <script>
-    const vscode = acquireVsCodeApi();
-    const chatContainer = document.getElementById('chat');
-    const input = document.getElementById('input');
-    const sendButton = document.getElementById('send');
+    (function() {
+      const vscode = acquireVsCodeApi();
+      const chatContainer = document.getElementById('chat');
+      const input = document.getElementById('input');
+      const attachEditorButton = document.getElementById('attach-editor');
+      const attachSelectionButton = document.getElementById('attach-selection');
+      const sendButton = document.getElementById('send');
 
-    let isStreaming = false;
+      let isStreaming = false;
 
-    // Auto-resize textarea
-    input.addEventListener('input', () => {
-      input.style.height = 'auto';
-      input.style.height = Math.min(input.scrollHeight, 120) + 'px';
-    });
-
-    // Send message
-    function sendMessage() {
-      const message = input.value.trim();
-      if (!message || isStreaming) return;
-
-      vscode.postMessage({
-        type: 'sendMessage',
-        message: message
+      input.addEventListener('input', function() {
+        resizeInput();
       });
 
-      input.value = '';
-      input.style.height = 'auto';
-      isStreaming = true;
-      sendButton.disabled = true;
-    }
+      function sendMessage() {
+        const message = input.value.trim();
+        if (!message || isStreaming) return;
 
-    sendButton.addEventListener('click', sendMessage);
+        vscode.postMessage({
+          type: 'sendMessage',
+          message: message
+        });
 
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        sendMessage();
-      }
-    });
-
-    // Handle messages from extension
-    window.addEventListener('message', event => {
-      const message = event.data;
-
-      switch (message.type) {
-        case 'addMessage':
-          addMessage(message.message);
-          break;
-        case 'updateMessage':
-          updateMessage(message.id, message.content);
-          break;
-        case 'messageComplete':
-          isStreaming = false;
-          sendButton.disabled = false;
-          break;
-        case 'clearChat':
-          chatContainer.innerHTML = '';
-          break;
-        case 'prefillMessage':
-          input.value = message.message;
-          input.focus();
-          break;
-      }
-    });
-
-    function addMessage(msg) {
-      const messageDiv = document.createElement('div');
-      messageDiv.className = \`message \${msg.role}\`;
-      messageDiv.id = \`msg-\${msg.id}\`;
-
-      const header = document.createElement('div');
-      header.className = 'message-header';
-      header.textContent = msg.role === 'user' ? 'You' : 'WebBot';
-
-      const bubble = document.createElement('div');
-      bubble.className = 'message-bubble';
-      bubble.id = \`bubble-\${msg.id}\`;
-
-      if (msg.content) {
-        bubble.textContent = msg.content;
-      } else if (msg.role === 'assistant') {
-        const typing = document.createElement('div');
-        typing.className = 'typing-indicator';
-        typing.innerHTML = '<span></span><span></span><span></span>';
-        bubble.appendChild(typing);
+        input.value = '';
+        input.style.height = 'auto';
+        isStreaming = true;
+        sendButton.disabled = true;
       }
 
-      messageDiv.appendChild(header);
-      messageDiv.appendChild(bubble);
-      chatContainer.appendChild(messageDiv);
-      chatContainer.scrollTop = chatContainer.scrollHeight;
-    }
+      attachEditorButton.addEventListener('click', function() {
+        vscode.postMessage({ type: 'attachActiveEditor' });
+      });
 
-    function updateMessage(id, content) {
-      const bubble = document.getElementById(\`bubble-\${id}\`);
-      if (bubble) {
-        bubble.textContent = content;
+      attachSelectionButton.addEventListener('click', function() {
+        vscode.postMessage({ type: 'attachSelection' });
+      });
+
+      sendButton.addEventListener('click', sendMessage);
+
+      input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          sendMessage();
+        }
+      });
+
+      window.addEventListener('message', function(event) {
+        const message = event.data;
+
+        switch (message.type) {
+          case 'addMessage':
+            addMessage(message.message);
+            break;
+          case 'updateMessage':
+            updateMessage(message.id, message.content);
+            break;
+          case 'attachFileContent':
+            attachFile(message);
+            break;
+          case 'messageComplete':
+            isStreaming = false;
+            sendButton.disabled = false;
+            break;
+          case 'clearChat':
+            chatContainer.innerHTML = '';
+            break;
+          case 'prefillMessage':
+            input.value = message.message;
+            input.focus();
+            resizeInput();
+            break;
+        }
+      });
+
+      function addMessage(msg) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'message ' + msg.role;
+        messageDiv.id = 'msg-' + msg.id;
+
+        const header = document.createElement('div');
+        header.className = 'message-header';
+        header.textContent = msg.role === 'user' ? 'You' : 'WebBot';
+
+        const bubble = document.createElement('div');
+        bubble.className = 'message-bubble';
+        bubble.id = 'bubble-' + msg.id;
+
+        if (msg.content) {
+          bubble.textContent = msg.content;
+        } else if (msg.role === 'assistant') {
+          const typing = document.createElement('div');
+          typing.className = 'typing-indicator';
+          typing.innerHTML = '<span></span><span></span><span></span>';
+          bubble.appendChild(typing);
+        }
+
+        messageDiv.appendChild(header);
+        messageDiv.appendChild(bubble);
+        chatContainer.appendChild(messageDiv);
         chatContainer.scrollTop = chatContainer.scrollHeight;
       }
-    }
+
+      function updateMessage(id, content) {
+        const bubble = document.getElementById('bubble-' + id);
+        if (bubble) {
+          bubble.textContent = content;
+          chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+      }
+
+      function resizeInput() {
+        input.style.height = 'auto';
+        input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+      }
+
+      function attachFile(message) {
+        const language = message.language || '';
+        const attachmentText = 
+          'File: ' + message.fileName + '\\n' +
+          '\`\`\`' + language + '\\n' +
+          message.content + '\\n' +
+          '\`\`\`\\n\\n';
+
+        const needsNewline = input.value && !input.value.endsWith('\\n');
+        input.value = input.value + (needsNewline ? '\\n\\n' : '') + attachmentText;
+        input.focus();
+        resizeInput();
+      }
+    })();
   </script>
 </body>
 </html>`;

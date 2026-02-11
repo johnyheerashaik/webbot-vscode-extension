@@ -32,6 +32,14 @@
         "command": "webbot.clearHistory",
         "title": "WebBot: Clear History",
         "icon": "$(trash)"
+      },
+      {
+        "command": "webbot.askAboutCode",
+        "title": "WebBot: Ask About This Code"
+      },
+      {
+        "command": "webbot.explainFile",
+        "title": "WebBot: Explain This File"
       }
     ],
     "viewsContainers": {
@@ -67,8 +75,13 @@
       ],
       "editor/context": [
         {
-          "command": "webbot.openChat",
-          "group": "webbot"
+          "command": "webbot.askAboutCode",
+          "when": "editorHasSelection",
+          "group": "webbot@1"
+        },
+        {
+          "command": "webbot.explainFile",
+          "group": "webbot@2"
         }
       ]
     },
